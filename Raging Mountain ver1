@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mountain Rage Defender</title>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      color: red;
+      font-family: 'Comic Sans MS', cursive, sans-serif;
+      text-align: center;
+      user-select: none;
+      overflow: hidden;
+    }
+    #gameCanvas {
+      display: block;
+      margin: 0 auto;
+      border: 5px dashed red;
+      background-color: #222;
+      cursor: crosshair;
+      touch-action: none;
+    }
+    #info {
+      color: red;
+      font-size: 18px;
+      margin-top: 6px;
+      position: relative;
+      z-index: 20;
+    }
+    #pauseBtn {
+      position: absolute;
+      top: 10px;
+      right: 20px;
+      padding: 10px 20px;
+      background: red;
+      color: white;
+      font-size: 16px;
+      border: none;
+      cursor: pointer;
+      z-index: 20;
+      border-radius: 6px;
+      transition: background 0.3s;
+    }
+    #pauseBtn:hover {
+      background: #ff4444;
+    }
+    #store {
+      position: absolute;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #111;
+      border: 3px solid red;
+      padding: 20px;
+      color: white;
+      display: none;
+      z-index: 30;
+      max-width: 380px;
+      border-radius: 8px;
+      box-shadow: 0 0 20px red;
+      max-height: 75vh;
+      overflow-y: auto;
+    }
+    #store h2 {
+      margin-top: 0;
+    }
+    .upgrade-btn {
+      margin: 8px 0;
+      padding: 10px;
+      background: darkred;
+      color: white;
+      border: none;
+      cursor: pointer;
+      width: 100%;
+      font-size: 16px;
+      border-radius: 6px;
+      transition: background 0.3s;
+    }
+    .upgrade-btn:hover:not(:disabled) {
+      background: #ff4444;
+    }
+    .upgrade-btn:disabled {
+      background: #440000;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <h1>💢 MOUNTAIN RAGE DEFENDER 💢</h1>
+  <button id="pauseBtn">Pause</button>
+  <canvas id="gameCanvas" width="800" height="600" tabindex="0"></canvas>
+  <div id="info">
+    <p>Health: <span id="health">???</span> | Score: <span id="score">0</span></p>
+  </div>
+
+  <div id="store">
+    <h2>🛒 Upgrade Store</h2>
+    <button class="upgrade-btn" id="upgradeSlash" onclick="buyUpgrade('slash')" title="Increase slash size by 4">🔥 Bigger Slash (Cost: 10)</button>
+    <button class="upgrade-btn" id="upgradeDouble" onclick="buyUpgrade('double')" title="Double your points per enemy">⚔️ Double Points (Cost: 25)</button>
+    <button class="upgrade-btn" id="upgradeHealth" onclick="buyUpgrade('health')" title="Gain 25 extra health">🛡️ More Health +25 (Cost: 15)</button>
+    <button class="upgrade-btn" id="upgradeKillCursed" onclick="buyUpgrade('killCursed')" title="Slash cursed enemies safely">☠️ Slash Cursed Ones Safely (Cost: 40)</button>
+    <button class="upgrade-btn" id="upgradeMiniMountain" onclick="buyUpgrade('miniMountain')" title="Buy a mini mountain that shoots boulders">⛰️ Buy Mini Mountain (Cost: 50)</button>
+    <button class="upgrade-btn" id="upgradeCatapult" onclick="buyUpgrade('catapult')" title="Buy a catapult that launches heavy shells">🏹 Buy Catapult (Cost: 100)</button>
+    <button class="upgrade-btn" id="upgradeWalkingMountain" onclick="buyUpgrade('walkingMountain')" title="Buy a walking mountain to stomp enemies">🚶 Buy Walking Mountain (Cost: 150)</button>
+    <button class="upgrade-btn" id="upgradeWall" onclick="buyUpgrade('wall')" title="Build a wall to block enemies">🧱 Build Wall (Cost: 80)</button>
+    <button class="upgrade-btn" id="upgradeFireMountain" onclick="buyUpgrade('fireMountain')" title="Buy a Fire Mountain that shoots flames">🔥 Buy Fire Mountain (Cost: 200)</button>
+    <button class="upgrade-btn" id="upgradeIceMountain" onclick="buyUpgrade('iceMountain')" title="Buy an Ice Mountain that slows enemies">❄️ Buy Ice Mountain (Cost: 180)</button>
+    <br>
+    <button class="upgrade-btn" onclick="resumeGame()">▶️ Resume Game</button>
+  </div>
+
+  <script>
+    /*** GAME SETUP ***/
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const store = document.getElementById("store");
+
+    let health = 100;
+    let score = 0;
+    let paused = false;
+    let doublePoints = false;
+    let slashSize = 12;
+    let killCursedSlash = false;
+
+    const mountain = { x: canvas.width / 2, y: canvas.height / 2, radius: 60 };
+    const enemies = [];
+    const miniMountains = [];
+    const catapults = [];
+    const walkingMountains = [];
+    const boulders = [];
+    const shells = [];
+    const walls = [];
+    const fireMountains = [];
+    const iceMountains = [];
+
+    let spawnRate = 1500;
+    let gameStart = Date.now();
+
+    let scale = 1;
+    const minScale = 0.5;
+    const zoomOutSpeed = 0.00004; // controls zoom out rate
+
+    // Slash timing and fading
+    const slashDuration = 1200; // ms
+    let slashStartTime = 0;
+
+    /*** ENEMY TYPES AND PARAMETERS ***/
+    const enemyTypes = [
+      { type: "normal", color:"#ff0000", radius: 12, baseSpeed: 1.2, killer: false, health: 1, scoreValue:1 },
+      { type: "cursed", color:"#ff00ff", radius: 13, baseSpeed: 1.0, killer: true, health: 1, scoreValue:3 },
+      { type: "fast", color:"#ffff00", radius: 10, baseSpeed: 2.5, killer: false, health: 1, scoreValue:2 },
+      { type: "shielded", color:"#00ffff", radius: 14, baseSpeed: 0.8, killer:false, health: 3, scoreValue: 5 },
+      { type: "healer", color:"#00ff00", radius: 12, baseSpeed: 1.0, killer:false, health:1, scoreValue:1, heals: true},
+      { type: "giant", color:"#aa6600", radius: 22, baseSpeed: 0.6, killer:false, health: 5, scoreValue: 8 }
+    ];
+
+    let isDragging = false;
+    let slashPath = [];
+
+    // Utility function: Convert screen to game coordinates considering zoom & offset
+    function screenToGameCoords(x, y) {
+      const rect = canvas.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+
+      return {
+        x: (x - cx) / scale + mountain.x,
+        y: (y - cy) / scale + mountain.y
+      };
+    }
+
+    /*** SPAWNING ENEMIES ***/
+    function spawnEnemy() {
+      if (paused) return;
+      const x = Math.random() < 0.5 ? mountain.x - canvas.width / (2*scale) : mountain.x + canvas.width / (2*scale);
+      const y = mountain.y - canvas.height / (2*scale) + Math.random() * (canvas.height / scale);
+
+      let elapsedSeconds = (Date.now() - gameStart) / 1000;
+      let probabilities = [0.5, 0.05, 0.15, 0.1, 0.1, 0.1]; 
+
+      probabilities[1] = Math.min(0.15, 0.05 + elapsedSeconds * 0.001); 
+      probabilities[2] = Math.min(0.25, 0.15 + elapsedSeconds * 0.002); 
+      probabilities[3] = Math.min(0.20, 0.1 + elapsedSeconds * 0.0015); 
+      probabilities[4] = Math.min(0.15, 0.1 + elapsedSeconds * 0.001); 
+      probabilities[5] = Math.min(0.15, 0.1 + elapsedSeconds * 0.001);
+
+      const totalProb = probabilities.reduce((a,b) => a+b, 0);
+      probabilities = probabilities.map(p => p/totalProb);
+
+      let randomVal = Math.random();
+      let cumulative = 0;
+      let chosenTypeIndex = 0;
+      for (let i=0; i < probabilities.length; i++) {
+        cumulative += probabilities[i];
+        if (randomVal <= cumulative) {
+          chosenTypeIndex = i;
+          break;
+        }
+      }
+
+      const enemyProto = enemyTypes[chosenTypeIndex];
+      const speed = enemyProto.baseSpeed + Math.min(3, elapsedSeconds / 10);
+      enemies.push({
+        x,
+        y,
+        radius: enemyProto.radius,
+        speed,
+        killer: enemyProto.killer,
+        health: enemyProto.health,
+        maxHealth: enemyProto.health,
+        type: enemyProto.type,
+        color: enemyProto.color,
+        scoreValue: enemyProto.scoreValue,
+        heals: enemyProto.heals || false,
+      });
+    }
+
+    /*** ENEMY HEALING ***/
+    function healEnemies() {
+      if(paused) return;
+      enemies.forEach(enemy => {
+        if (!enemy.heals) return;
+        enemies.forEach(target => {
+          if (target !== enemy && target.health < target.maxHealth) {
+            const dx = enemy.x - target.x;
+            const dy = enemy.y - target.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 50) {
+              target.health += 0.01;
+              if(target.health > target.maxHealth) target.health = target.maxHealth;
+            }
+          }
+        });
+      });
+    }
+
+    /*** DAMAGE ENEMY and REMOVE IF DEAD ***/
+    function damageEnemy(index, damage) {
+      const enemy = enemies[index];
+      if (!enemy) return false;
+      enemy.health -= damage;
+      if (enemy.health <= 0) {
+        score += doublePoints ? enemy.scoreValue*2 : enemy.scoreValue;
+        enemies.splice(index,1);
+        return true;
+      }
+      return false;
+    }
+
+    /*** WALLS ***/
+    function Wall(x, y, width, height) {
+      this.x = x;
+      this.y = y;
+      this.width = width;
+      this.height = height;
+    }
+
+    Wall.prototype.draw = function() {
+      ctx.fillStyle = "#884400";
+      ctx.strokeStyle = "#bb6600";
+      ctx.lineWidth = 3/scale;
+      ctx.fillRect(this.x - this.width/2, this.y - this.height/2, this.width, this.height);
+      ctx.strokeRect(this.x - this.width/2, this.y - this.height/2, this.width, this.height);
+    };
+
+    // Check if point collides inside wall
+    function pointInWall(x, y) {
+      for(let wall of walls) {
+        if (x > wall.x - wall.width/2 && x < wall.x + wall.width/2 && y > wall.y - wall.height/2 && y < wall.y + wall.height/2) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /*** ENEMY UPDATE AND COLLISION WITH WALLS ***/
+    function updateEnemies() {
+      if (paused) return;
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        let dx = mountain.x - enemy.x;
+        let dy = mountain.y - enemy.y;
+        let dist = Math.hypot(dx, dy);
+        if(dist === 0) continue;
+        let nx = dx / dist;
+        let ny = dy / dist;
+
+        // Proposed movement
+        let nextX = enemy.x + nx * enemy.speed;
+        let nextY = enemy.y + ny * enemy.speed;
+
+        // Check wall collision, simple avoidance: try perpendicularly moving around wall
+        if(pointInWall(nextX, nextY)) {
+          // Try moving perpendicular directions
+          let perp1 = {x: enemy.x + ny * enemy.speed, y: enemy.y - nx * enemy.speed};
+          let perp2 = {x: enemy.x - ny * enemy.speed, y: enemy.y + nx * enemy.speed};
+
+          if(!pointInWall(perp1.x, perp1.y)){
+            nextX = perp1.x;
+            nextY = perp1.y;
+          } else if(!pointInWall(perp2.x, perp2.y)){
+            nextX = perp2.x;
+            nextY = perp2.y;
+          } else {
+            // Stuck, no movement this frame
+            nextX = enemy.x;
+            nextY = enemy.y;
+          }
+        }
+
+        enemy.x = nextX;
+        enemy.y = nextY;
+
+        // Walking mountain interacts when near sufficiently
+        walkingMountains.forEach(wm => {
+          const dxWM = wm.x - enemy.x;
+          const dyWM = wm.y - enemy.y;
+          if(Math.hypot(dxWM, dyWM) < wm.radius + enemy.radius) {
+            damageEnemy(i, 2);
+          }
+        });
+
+        if (dist < mountain.radius) {
+          if (enemy.killer) gameOver("You were touched by a cursed one!");
+          else {
+            health -= 10;
+            if (health <= 0) gameOver("You lost all your rocky spirit.");
+            enemies.splice(i, 1);
+          }
+        }
+      }
+    }
+
+    /*** DRAWING ***/
+    function drawMountain() {
+      ctx.fillStyle = "#663300";
+      ctx.beginPath();
+      ctx.arc(mountain.x, mountain.y, mountain.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.font = `bold ${18/scale}px Arial`;
+      ctx.textAlign = "center";
+      ctx.fillText("😡", mountain.x, mountain.y + 5/scale);
+    }
+
+    function drawEnemyHealth(enemy) {
+      if(enemy.health >= enemy.maxHealth) return;
+      const barWidth = enemy.radius*2;
+      const barHeight = 4/scale;
+      const healthRatio = enemy.health / enemy.maxHealth;
+      ctx.fillStyle = "black";
+      ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10/scale, barWidth, barHeight);
+      ctx.fillStyle = "lime";
+      ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10/scale, barWidth*healthRatio, barHeight);
+    }
+
+    function drawEnemies() {
+      enemies.forEach((enemy) => {
+        ctx.fillStyle = enemy.color;
+        ctx.beginPath();
+        ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+        ctx.fill();
+        drawEnemyHealth(enemy);
+      });
+    }
+
+    function drawSlash() {
+      const timePassed = Date.now() - slashStartTime;
+      if (slashPath.length > 1 && timePassed < slashDuration) {
+        const alpha = 1 - (timePassed / slashDuration);
+        ctx.strokeStyle = `rgba(0,255,255,${alpha})`;
+        ctx.lineWidth = 3 / scale;
+        ctx.beginPath();
+        ctx.moveTo(slashPath[0].x, slashPath[0].y);
+        for (let i = 1; i < slashPath.length; i++) {
+          ctx.lineTo(slashPath[i].x, slashPath[i].y);
+        }
+        ctx.stroke();
+      } else if(timePassed >= slashDuration) {
+        slashPath = [];
+      }
+    }
+
+    function checkSlashHits() {
+      if (!slashPath.length) return;
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        for (let j = 0; j < slashPath.length - 1; j++) {
+          const a = slashPath[j];
+          const b = slashPath[j + 1];
+          const hit = pointToLineDistance(enemy, a, b) < enemy.radius + slashSize / 2;
+          if (hit) {
+            if (enemy.killer) {
+              if (killCursedSlash) {
+                damageEnemy(i, 1);
+              } else {
+                gameOver("You slashed a cursed one!");
+              }
+            } else {
+              damageEnemy(i, 1);
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    function pointToLineDistance(point, a, b) {
+      const A = point.x - a.x;
+      const B = point.y - a.y;
+      const C = b.x - a.x;
+      const D = b.y - a.y;
+
+      const dot = A * C + B * D;
+      const len_sq = C * C + D * D;
+      const param = len_sq !== 0 ? dot / len_sq : -1;
+
+      let xx, yy;
+      if (param < 0) {
+        xx = a.x;
+        yy = a.y;
+      } else if (param > 1) {
+        xx = b.x;
+        yy = b.y;
+      } else {
+        xx = a.x + param * C;
+        yy = a.y + param * D;
+      }
+
+      const dx = point.x - xx;
+      const dy = point.y - yy;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    /*** MINI MOUNTAIN ***/
+    function MiniMountain(x, y) {
+      this.x = x;
+      this.y = y;
+      this.radius = 20;
+      this.fireInterval = 2000; 
+      this.lastFire = Date.now();
+    }
+
+    MiniMountain.prototype.draw = function() {
+      ctx.fillStyle = "#7777bb";
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y - this.radius);
+      ctx.lineTo(this.x - this.radius, this.y + this.radius);
+      ctx.lineTo(this.x + this.radius, this.y + this.radius);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#eee";
+      ctx.font = `bold ${12/scale}px Arial`;
+      ctx.textAlign = "center";
+      ctx.fillText("mini", this.x, this.y + 5/scale);
+    };
+
+    MiniMountain.prototype.tryFire = function() {
+      if (paused) return;
+      if (Date.now() - this.lastFire > this.fireInterval) {
+        this.lastFire = Date.now();
+        if (enemies.length > 0) {
+          let nearestEnemy = null;
+          let nearestDist = Infinity;
+          for(const enemy of enemies) {
+            const dx = enemy.x - this.x;
+            const dy = enemy.y - this.y;
+            const dist = Math.hypot(dx, dy);
+            if(dist < nearestDist) {
+              nearestDist = dist;
+              nearestEnemy = enemy;
+            }
+          }
+          if(nearestEnemy) {
+            const dx = nearestEnemy.x - this.x;
+            const dy = nearestEnemy.y - this.y;
+            const dist = Math.hypot(dx, dy);
+            const speed = 5;
+            boulders.push({
+              x: this.x,
+              y: this.y,
+              radius: 6,
+              speedX: (dx / dist)*speed,
+              speedY: (dy / dist)*speed,
+              damage: 15
+            });
+          }
+        }
+      }
+    };
+
+    /*** CATAPULT ***/
+    function Catapult(x, y) {
+      this.x = x;
+      this.y = y;
+      this.radius = 22;
+      this.fireInterval = 3500;
+      this.lastFire = Date.now();
+    }
+
+    Catapult.prototype.draw = function() {
+      ctx.fillStyle = "#bb7755";
+      ctx.beginPath();
+      ctx.rect(this.x - this.radius, this.y - this.radius, this.radius*2, this.radius*2);
+      ctx.fill();
+      ctx.fillStyle = "#eee";
+      ctx.font = `bold ${14/scale}px Arial`;
+      ctx.textAlign = "center";
+      ctx.fillText("catapult", this.x, this.y + 5/scale);
+    };
+
+    Catapult.prototype.tryFire = function() {
+      if (paused) return;
+      if(Date.now() - this.lastFire > this.fireInterval){
+        this.lastFire = Date.now();
+        if(enemies.length > 0){
+          let target = enemies[Math.floor(Math.random()*enemies.length)];
+          const dx = target.x - this.x;
+          const dy = target.y - this.y;
+          const dist = Math.hypot(dx, dy);
+          const speed = 3;
+          shells.push({
+            x: this.x,
+            y: this.y,
+            radius: 10,
+            speedX: (dx / dist) * speed,
+            speedY: (dy / dist) * speed,
+            targetX: target.x,
+            targetY: target.y,
+            explosionRadius: 50,
+            exploded: false
+          });
+        }
+      }
+    };
+
+    /*** FIRE MOUNTAIN ***/
+    function FireMountain(x,y){
+      this.x = x;
+      this.y = y;
+      this.radius = 25;
+      this.fireInterval = 1800;
+      this.lastFire = Date.now();
+    }
+    FireMountain.prototype.draw = function(){
+      ctx.fillStyle = "#ee4400";
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y - this.radius);
+      ctx.lineTo(this.x - this.radius, this.y + this.radius);
+      ctx.lineTo(this.x + this.radius, this.y + this.radius);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#fff5cc";
+      ctx.font = `bold ${14/scale}px Arial`;
+      ctx.textAlign = "center";
+      ctx.fillText("fire", this.x, this.y + 5/scale);
+    };
+    FireMountain.prototype.tryFire = function(){
+      if(paused) return;
+      if(Date.now() - this.lastFire > this.fireInterval){
+        this.lastFire = Date.now();
+        if(enemies.length > 0){
+          let nearestEnemy = null;
+          let nearestDist = Infinity;
+          for(let enemy of enemies){
+            const dist = Math.hypot(this.x - enemy.x, this.y - enemy.y);
+            if(dist < nearestDist){
+              nearestDist = dist;
+              nearestEnemy = enemy;
+            }
+          }
+          if(nearestEnemy){
+            // Projectile: fast flame ball
+            const dx = nearestEnemy.x - this.x;
+            const dy = nearestEnemy.y - this.y;
+            const dist = Math.hypot(dx, dy);
+            const speed = 7;
+            boulders.push({
+              x: this.x,
+              y: this.y,
+              radius: 7,
+              speedX: (dx / dist) * speed,
+              speedY: (dy / dist) * speed,
+              damage: 20,
+              flame: true
+            });
+          }
+        }
+      }
+    };
+
+    /*** ICE MOUNTAIN ***/
+    function IceMountain(x,y){
+      this.x = x;
+      this.y = y;
+      this.radius = 25;
+      this.slowRadius = 80;
+      this.slowFactor = 0.6;
+      this.color = "#33bbff";
+      this.name = "ice";
+      this.lastSlowUpdate = 0;
+    }
+    IceMountain.prototype.draw = function(){
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = "#ccf5ff";
+      ctx.font = `bold ${14/scale}px Arial`;
+      ctx.textAlign = "center";
+      ctx.fillText("ice", this.x, this.y + 5/scale);
+
+      // Draw slow radius ring
+      ctx.strokeStyle = "rgba(204, 245, 255, 0.4)";
+      ctx.lineWidth = 2/scale;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.slowRadius, 0, Math.PI*2);
+      ctx.stroke();
+    };
+    IceMountain.prototype.slowEnemies = function(){
+      if(paused) return;
+      if(Date.now() - this.lastSlowUpdate < 500) return;
+      this.lastSlowUpdate = Date.now();
+
+      enemies.forEach(enemy => {
+        let dist = Math.hypot(this.x - enemy.x, this.y - enemy.y);
+        if(dist < this.slowRadius){
+          enemy.speed *= this.slowFactor;
+          // Clamp speed to avoid slowing down too much for next frame
+          enemy.speed = Math.max(enemy.speed, 0.3);
+        }
+      });
+    };
+
+    /*** PROJECTILE UPDATE AND DRAWING ***/
+    function updateBoulders() {
+      for (let i = boulders.length - 1; i >= 0; i--) {
+        const b = boulders[i];
+        if(paused) continue;
+        b.x += b.speedX;
+        b.y += b.speedY;
+
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const enemy = enemies[j];
+          const dx = enemy.x - b.x;
+          const dy = enemy.y - b.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < enemy.radius + b.radius) {
+            damageEnemy(j, b.damage);
+            boulders.splice(i, 1);
+            break;
+          }
+        }
+
+        if (b.x < mountain.x - canvas.width/(2*scale) || b.x > mountain.x + canvas.width/(2*scale) ||
+            b.y < mountain.y - canvas.height/(2*scale) || b.y > mountain.y + canvas.height/(2*scale)) {
+          boulders.splice(i, 1);
+        }
+      }
+    }
+
+    function drawBoulders() {
+      boulders.forEach(b => {
+        if(b.flame){
+          // Flame ball gradient orange
+          const grad = ctx.createRadialGradient(b.x, b.y, b.radius*0.3, b.x, b.y, b.radius);
+          grad.addColorStop(0, 'rgba(255,140,0,0.9)');
+          grad.addColorStop(1, 'rgba(255,69,0,0.2)');
+          ctx.fillStyle = grad;
+        } else {
+          ctx.fillStyle = "#996633";
+        }
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius, 0, Math.PI*2);
+        ctx.fill();
+      });
+    }
+
+    function updateShells() {
+      for(let i = shells.length - 1; i >= 0; i--){
+        const s = shells[i];
+        if(paused) continue;
+        if(s.exploded) continue;
+        s.x += s.speedX;
+        s.y += s.speedY;
+
+        let distToTarget = Math.hypot(s.x - s.targetX, s.y - s.targetY);
+
+        if(distToTarget < Math.max(Math.abs(s.speedX), Math.abs(s.speedY))){
+          s.exploded = true;
+          for(let j=enemies.length-1; j>=0; j--){
+            const enemy = enemies[j];
+            const dist = Math.hypot(enemy.x - s.x, enemy.y - s.y);
+            if(dist < s.explosionRadius + enemy.radius){
+              damageEnemy(j, 3);
+            }
+          }
+          s.explosionTime = Date.now();
+        }
+      }
+
+      for(let i = shells.length - 1; i>=0; i--) {
+        const s = shells[i];
+        if(s.exploded && (Date.now() - s.explosionTime > 500)) {
+          shells.splice(i,1);
+        }
+      }
+    }
+
+    function drawShells() {
+      shells.forEach(s => {
+        if(!s.exploded){
+          ctx.fillStyle = "#444444";
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.radius, 0, Math.PI*2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "rgba(255,100,0,"+ (0.5 - (Date.now() - s.explosionTime)/1000) +")";
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, s.explosionRadius, 0, Math.PI*2);
+          ctx.fill();
+        }
+      });
+    }
+
+    /*** WALKING MOUNTAINS ***/
+    function WalkingMountain(x, y) {
+      this.x = x;
+      this.y = y;
+      this.radius = 30;
+      this.speed = 0.8;
+      this.direction = Math.random() * Math.PI * 2;
+      this.changeDirInterval = 4000;
+      this.lastDirChange = Date.now();
+    }
+
+    WalkingMountain.prototype.draw = function() {
+      ctx.fillStyle = "#558855";
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.font = `bold ${14/scale}px Arial`;
+      ctx.textAlign = "center";
+      ctx.fillText("walk", this.x, this.y + 5/scale);
+    };
+
+    WalkingMountain.prototype.update = function() {
+      if(paused) return;
+      if(Date.now() - this.lastDirChange > this.changeDirInterval){
+        let angleToCenter = Math.atan2(mountain.y - this.y, mountain.x - this.x);
+        this.direction = angleToCenter + (Math.random() - 0.5);
+        this.lastDirChange = Date.now();
+      }
+      this.x += Math.cos(this.direction) * this.speed;
+      this.y += Math.sin(this.direction) * this.speed;
+
+      let dx = this.x - mountain.x;
+      let dy = this.y - mountain.y;
+      let dist = Math.hypot(dx, dy);
+      let maxDist = mountain.radius + 150;
+      if(dist > maxDist){
+        let angleBack = Math.atan2(mountain.y - this.y, mountain.x - this.x);
+        this.direction = angleBack;
+      }
+      if(this.x < this.radius) this.x = this.radius;
+      if(this.y < this.radius) this.y = this.radius;
+      if(this.x > mountain.x + canvas.width/(2*scale) - this.radius) this.x = mountain.x + canvas.width/(2*scale) - this.radius;
+      if(this.y > mountain.y + canvas.height/(2*scale) - this.radius) this.y = mountain.y + canvas.height/(2*scale) - this.radius;
+    };
+
+    /*** DRAW WALLS ***/
+    function drawWalls() {
+      walls.forEach(wall => wall.draw());
+    }
+
+    /*** FIRE MOUNTAIN ***/
+    FireMountain.prototype.tryFire = function(){
+      if(paused) return;
+      if(Date.now() - this.lastFire > this.fireInterval){
+        this.lastFire = Date.now();
+        if(enemies.length > 0){
+          let nearestEnemy = null;
+          let nearestDist = Infinity;
+          for(let enemy of enemies){
+            const dist = Math.hypot(this.x - enemy.x, this.y - enemy.y);
+            if(dist < nearestDist){
+              nearestDist = dist;
+              nearestEnemy = enemy;
+            }
+          }
+          if(nearestEnemy){
+            const dx = nearestEnemy.x - this.x;
+            const dy = nearestEnemy.y - this.y;
+            const dist = Math.hypot(dx, dy);
+            const speed = 7;
+            boulders.push({
+              x: this.x,
+              y: this.y,
+              radius: 7,
+              speedX: (dx / dist) * speed,
+              speedY: (dy / dist) * speed,
+              damage: 20,
+              flame: true
+            });
+          }
+        }
+      }
+    };
+
+    /*** ICE MOUNTAIN ***/
+    IceMountain.prototype.slowEnemies = function(){
+      if(paused) return;
+      if(Date.now() - this.lastSlowUpdate < 500) return;
+      this.lastSlowUpdate = Date.now();
+
+      enemies.forEach(enemy => {
+        let dist = Math.hypot(this.x - enemy.x, this.y - enemy.y);
+        if(dist < this.slowRadius){
+          enemy.speed *= this.slowFactor;
+          enemy.speed = Math.max(enemy.speed, 0.3);
+        }
+      });
+    };
+
+    /*** GAME OVER ***/
+    function gameOver(reason) {
+      ctx.resetTransform();
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "red";
+      ctx.font = "48px Impact";
+      ctx.textAlign = "center";
+      ctx.fillText("YOU LOSE!", canvas.width / 2, canvas.height / 2);
+      ctx.font = "24px Arial";
+      ctx.fillText(reason, canvas.width / 2, canvas.height / 2 + 40);
+      ctx.fillText("Final Score: " + score, canvas.width / 2, canvas.height / 2 + 80);
+      throw new Error("Game Over");
+    }
+
+    /*** MAIN UPDATE LOOP ***/
+    function update() {
+      // Zoom out logic
+      scale -= zoomOutSpeed;
+      if(scale < minScale) scale = minScale;
+
+      // Center transform on mountain and scale
+      ctx.setTransform(scale, 0, 0, scale, canvas.width/2 - mountain.x*scale, canvas.height/2 - mountain.y*scale);
+      ctx.clearRect(mountain.x - canvas.width/(2*scale), mountain.y - canvas.height/(2*scale), canvas.width/scale, canvas.height/scale);
+
+      drawMountain();
+      drawWalls();
+      drawEnemies();
+      drawSlash();
+      drawMiniMountains();
+      drawCatapults();
+      drawWalkingMountains();
+      drawFireMountains();
+      drawIceMountains();
+      drawBoulders();
+      drawShells();
+
+      updateEnemies();
+      updateMiniMountains();
+      updateCatapults();
+      updateWalkingMountains();
+      updateFireMountains();
+      updateIceMountains();
+      updateBoulders();
+      updateShells();
+      healEnemies();
+      checkSlashHits();
+
+      // Reset transform for UI text
+      ctx.setTransform(1,0,0,1,0,0);
+
+      document.getElementById("health").textContent = health > 0 ? "???" : "0";
+      document.getElementById("score").textContent = score;
+
+      // Disable upgrade buttons based on score and purchase
+      document.getElementById("upgradeSlash").disabled = score < 10;
+      document.getElementById("upgradeDouble").disabled = score < 25 || doublePoints;
+      document.getElementById("upgradeHealth").disabled = score < 15;
+      document.getElementById("upgradeKillCursed").disabled = score < 40 || killCursedSlash;
+      document.getElementById("upgradeMiniMountain").disabled = score < 50;
+      document.getElementById("upgradeCatapult").disabled = score < 100;
+      document.getElementById("upgradeWalkingMountain").disabled = score < 150;
+      document.getElementById("upgradeWall").disabled = score < 80;
+      document.getElementById("upgradeFireMountain").disabled = score < 200;
+      document.getElementById("upgradeIceMountain").disabled = score < 180;
+
+      requestAnimationFrame(update);
+    }
+
+    /*** DRAW & UPDATE EXTRA DEFENSES ***/
+    function drawMiniMountains() {
+      miniMountains.forEach(mm => mm.draw());
+    }
+    function updateMiniMountains() {
+      miniMountains.forEach(mm => mm.tryFire());
+    }
+
+    function drawCatapults() {
+      catapults.forEach(c => c.draw());
+    }
+    function updateCatapults(){
+      catapults.forEach(c => c.tryFire());
+    }
+
+    function drawWalkingMountains() {
+      walkingMountains.forEach(wm => wm.draw());
+    }
+    function updateWalkingMountains() {
+      walkingMountains.forEach(wm => wm.update());
+    }
+
+    function drawFireMountains(){
+      fireMountains.forEach(fm => fm.draw());
+    }
+    function updateFireMountains(){
+      fireMountains.forEach(fm => fm.tryFire());
+    }
+
+    function drawIceMountains(){
+      iceMountains.forEach(im => im.draw());
+    }
+    function updateIceMountains(){
+      iceMountains.forEach(im => im.slowEnemies());
+    }
+
+    /*** DRAW WALLS ***/
+    function drawWalls() {
+      walls.forEach(wall => wall.draw());
+    }
+
+    /*** PLAYER INPUT & SLASH ***/
+    canvas.addEventListener("mousedown", (e) => {
+      if (paused) return;
+      isDragging = true;
+      slashPath = [];
+      const coords = screenToGameCoords(e.clientX, e.clientY);
+      slashPath.push({ x: coords.x, y: coords.y });
+      slashStartTime = Date.now();
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+      if (!isDragging || paused) return;
+      const coords = screenToGameCoords(e.clientX, e.clientY);
+      slashPath.push({ x: coords.x, y: coords.y });
+    });
+
+    canvas.addEventListener("mouseup", () => {
+      if (!paused) {
+        isDragging = false;
+      }
+    });
+
+    /*** SPAWN LOOP ***/
+    function spawnLoop() {
+      spawnEnemy();
+      const difficulty = Math.max(300, spawnRate - (Date.now() - gameStart) / 20);
+      setTimeout(spawnLoop, difficulty);
+    }
+
+    pauseBtn.addEventListener("click", () => {
+      paused = true;
+      store.style.display = "block";
+    });
+
+    function resumeGame() {
+      paused = false;
+      store.style.display = "none";
+    }
+
+    /*** BUY UPGRADES ***/
+    function buyUpgrade(type) {
+      if (type === "slash" && score >= 10) {
+        slashSize += 4;
+        score -= 10;
+      }
+      if (type === "double" && score >= 25) {
+        doublePoints = true;
+        score -= 25;
+      }
+      if (type === "health" && score >= 15) {
+        health += 25;
+        score -= 15;
+      }
+      if (type === "killCursed" && score >= 40) {
+        killCursedSlash = true;
+        score -= 40;
+      }
+      if (type === "miniMountain" && score >= 50) {
+        const angle = Math.random() * Math.PI * 2;
+        const distFromCenter = mountain.radius + 40 + Math.random() * 30;
+        const x = mountain.x + Math.cos(angle) * distFromCenter;
+        const y = mountain.y + Math.sin(angle) * distFromCenter;
+        miniMountains.push(new MiniMountain(x, y));
+        score -= 50;
+      }
+      if (type === "catapult" && score >= 100) {
+        const angle = Math.random() * Math.PI * 2;
+        const distFromCenter = mountain.radius + 50 + Math.random() * 40;
+        const x = mountain.x + Math.cos(angle) * distFromCenter;
+        const y = mountain.y + Math.sin(angle) * distFromCenter;
+        catapults.push(new Catapult(x, y));
+        score -= 100;
+      }
+      if (type === "walkingMountain" && score >= 150) {
+        const angle = Math.random() * Math.PI * 2;
+        const distFromCenter = mountain.radius + 80 + Math.random() * 40;
+        const x = mountain.x + Math.cos(angle) * distFromCenter;
+        const y = mountain.y + Math.sin(angle) * distFromCenter;
+        walkingMountains.push(new WalkingMountain(x, y));
+        score -= 150;
+      }
+      if(type === "wall" && score >= 80) {
+        // Place wall at random position around mountain edge,  hit detection prevents overlapping walls and mountain
+        const tries = 20;
+        let placed = false;
+        for(let i=0; i<tries && !placed; i++){
+          const angle = Math.random() * Math.PI*2;
+          const dist = mountain.radius + 60 + Math.random()*40;
+          const x = mountain.x + Math.cos(angle)*dist;
+          const y = mountain.y + Math.sin(angle)*dist;
+          const width = 30;
+          const height = 60;
+
+          const collidesWithWallOrMountain = walls.some(w => {
+            return (Math.abs(x - w.x) < (width + w.width)/2) && (Math.abs(y - w.y) < (height + w.height)/2);
+          }) || (Math.hypot(x - mountain.x, y - mountain.y) < mountain.radius + height/2 + 10);
+
+          if(!collidesWithWallOrMountain){
+            walls.push(new Wall(x,y,width,height));
+            score -= 80;
+            placed = true;
+          }
+        }
+        if(!placed){
+          alert("No suitable space to build wall!");
+        }
+      }
+      if(type === "fireMountain" && score >= 200){
+        const angle = Math.random() * Math.PI*2;
+        const dist = mountain.radius + 45 + Math.random()*30;
+        const x = mountain.x + Math.cos(angle)*dist;
+        const y = mountain.y + Math.sin(angle)*dist;
+        fireMountains.push(new FireMountain(x,y));
+        score -= 200;
+      }
+      if(type === "iceMountain" && score >= 180){
+        const angle = Math.random() * Math.PI*2;
+        const dist = mountain.radius + 55 + Math.random()*30;
+        const x = mountain.x + Math.cos(angle)*dist;
+        const y = mountain.y + Math.sin(angle)*dist;
+        iceMountains.push(new IceMountain(x,y));
+        score -= 180;
+      }
+    }
+
+    update();
+    spawnLoop();
+
+  </script>
+</body>
+</html>
